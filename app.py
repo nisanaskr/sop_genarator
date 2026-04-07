@@ -57,8 +57,8 @@
         <div id="uploadArea" class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer text-slate-500">Görsel yüklemek için tıkla<input id="fileInput" type="file" accept="image/*" class="hidden" /></div>
         <div id="editorArea" class="hidden space-y-3">
           <div class="flex gap-2">
-            <button id="toolInstruction" class="tool-btn active px-3 py-1 rounded border text-xs">Talimat</button>
-            <button id="toolMarker" class="tool-btn px-3 py-1 rounded border text-xs">Mavi İşaretleyici</button>
+            <button id="toolInstruction" class="tool-btn active px-3 py-1 rounded border text-xs">Marker1 (Kırmızı / SOP)</button>
+            <button id="toolMarker" class="tool-btn px-3 py-1 rounded border text-xs">Marker2 (Mavi / Gösterim)</button>
           </div>
           <div class="relative" id="canvasContainer">
             <canvas id="mainCanvas" class="w-full rounded"></canvas>
@@ -69,7 +69,7 @@
 
       <div class="grid lg:grid-cols-2 gap-4">
         <div class="bg-white border rounded-xl p-4">
-          <div class="flex justify-between items-center mb-2"><h3 class="font-bold">Instructions</h3><button id="addManualBtn" class="text-xs px-2 py-1 bg-blue-600 text-white rounded">+ Add Manual</button></div>
+          <div class="flex justify-between items-center mb-2"><h3 class="font-bold">SOP Adımları</h3><button id="addManualBtn" class="text-xs px-2 py-1 bg-blue-600 text-white rounded">+ Add Manual Step</button></div>
           <div id="tableBody" class="space-y-2"></div>
         </div>
         <div class="bg-white border rounded-xl p-4">
@@ -112,7 +112,8 @@
   lucide.createIcons();
 
   let activeIdx = 0, currentMode = 'instruction', currentSopId = null;
-  let images = [null, null], imagesBase64 = [null, null], points = [], warnings = [], videoBase64 = null;
+  let images = [null, null], imagesBase64 = [null, null];
+  let steps = [], markers2 = [], warnings = [], videoUrl = null;
   let supabaseClient = null, viewerSteps = [], viewerStepIndex = 0, viewerSop = null;
 
   const initSupabase = () => {
@@ -131,6 +132,12 @@
     $('modeLibrary').className = `px-3 py-1.5 rounded text-sm ${mode==='library'?'bg-[#000080] text-white':'bg-slate-100'}`;
   };
 
+  const normalizeStepIds = () => {
+    let no = 0;
+    steps.forEach((s) => { s.id = ++no; });
+    markers2.forEach((m, i) => { m.id = i + 1; });
+  };
+
   const refreshEditor = () => {
     const img = images[activeIdx];
     if (!img) { $('uploadArea').classList.remove('hidden'); $('editorArea').classList.add('hidden'); return; }
@@ -143,34 +150,42 @@
     renderMarkers();
   };
 
-  const normalizeIds = () => {
-    let i = 0, m = 0;
-    points.forEach(p => { if (p.isSilent) p.id = ++m; else p.id = ++i; });
-  };
-
   const renderMarkers = () => {
     $('markersOverlay').innerHTML = '';
-    points.forEach((p, idx) => {
-      if (p.imgIdx !== activeIdx || p.isManual) return;
+
+    steps.forEach((s, idx) => {
+      if (s.isManual || s.imgIdx !== activeIdx || s.px == null || s.py == null) return;
       const d = document.createElement('div');
-      d.className = p.isSilent ? 'blue-marker' : 'marker';
-      d.style.left = `${p.px}%`; d.style.top = `${p.py}%`; d.textContent = p.id;
-      if (p.isSilent) d.oncontextmenu = (e) => { e.preventDefault(); points.splice(idx,1); updateAndRender(); };
+      d.className = 'marker';
+      d.style.left = `${s.px}%`; d.style.top = `${s.py}%`; d.textContent = s.id;
+      d.title = 'markers1 (SOP adımı)';
+      d.oncontextmenu = (e) => { e.preventDefault(); steps.splice(idx, 1); updateAndRender(); };
+      $('markersOverlay').appendChild(d);
+    });
+
+    markers2.forEach((m, idx) => {
+      if (m.imgIdx !== activeIdx) return;
+      const d = document.createElement('div');
+      d.className = 'blue-marker';
+      d.style.left = `${m.px}%`; d.style.top = `${m.py}%`; d.textContent = m.id;
+      d.title = 'markers2 (gösterim noktası)';
+      d.oncontextmenu = (e) => { e.preventDefault(); markers2.splice(idx, 1); updateAndRender(); };
       $('markersOverlay').appendChild(d);
     });
   };
 
   const renderTable = () => {
     $('tableBody').innerHTML = '';
-    points.filter(p=>!p.isSilent).forEach((p, idx0) => {
-      const idx = points.indexOf(p);
+    steps.forEach((s, idx) => {
       const row = document.createElement('div');
-      row.className = 'grid grid-cols-[40px_1fr_32px] gap-2 items-start';
-      row.innerHTML = `<div class="text-sm font-bold ${p.isManual?'text-blue-600':'text-red-600'}">${p.id}</div>
-        <textarea class="border rounded p-2 text-sm" rows="2">${p.description||''}</textarea>
+      const markerType = s.isManual ? 'Manual' : `Marker1 / Görsel ${s.imgIdx + 1}`;
+      row.className = 'grid grid-cols-[46px_1fr_70px_32px] gap-2 items-start';
+      row.innerHTML = `<div class="text-sm font-bold text-red-600">${s.id}</div>
+        <textarea class="border rounded p-2 text-sm" rows="2">${s.description||''}</textarea>
+        <div class="text-[10px] text-slate-500 self-center">${markerType}</div>
         <button class="text-red-600">✕</button>`;
-      row.querySelector('textarea').oninput = (e)=>{ points[idx].description=e.target.value; };
-      row.querySelector('button').onclick = ()=>{ points.splice(idx,1); updateAndRender(); };
+      row.querySelector('textarea').oninput = (e)=>{ steps[idx].description=e.target.value; };
+      row.querySelector('button').onclick = ()=>{ steps.splice(idx,1); updateAndRender(); };
       $('tableBody').appendChild(row);
     });
   };
@@ -186,9 +201,18 @@
     });
   };
 
-  const updateAndRender = () => { normalizeIds(); refreshEditor(); renderTable(); renderWarnings(); };
+  const updateAndRender = () => {
+    normalizeStepIds();
+    refreshEditor();
+    renderTable();
+    renderWarnings();
+  };
 
-  const readAsDataUrl = (file) => new Promise((resolve) => { const fr = new FileReader(); fr.onload=(e)=>resolve(e.target.result); fr.readAsDataURL(file); });
+  const readAsDataUrl = (file) => new Promise((resolve) => {
+    const fr = new FileReader();
+    fr.onload=(e)=>resolve(e.target.result);
+    fr.readAsDataURL(file);
+  });
 
   $('uploadArea').onclick = ()=>$('fileInput').click();
   $('fileInput').onchange = async (e)=>{
@@ -200,7 +224,7 @@
 
   $('videoInput').onchange = async (e)=>{
     const file=e.target.files[0]; if(!file) return;
-    videoBase64 = await readAsDataUrl(file);
+    videoUrl = await readAsDataUrl(file);
     $('videoInfo').textContent = `Video yüklendi: ${file.name}`;
   };
 
@@ -208,17 +232,36 @@
     if(!images[activeIdx]) return;
     const r = $('mainCanvas').getBoundingClientRect();
     const px=((e.clientX-r.left)/r.width)*100, py=((e.clientY-r.top)/r.height)*100;
-    points.push({id:null,px,py,description:'',isManual:false,isSilent:currentMode==='marker',imgIdx:activeIdx});
+
+    if (currentMode === 'instruction') {
+      steps.push({ id:null, px, py, description:'', isManual:false, imgIdx:activeIdx });
+    } else {
+      markers2.push({ id:null, px, py, imgIdx:activeIdx });
+    }
+
     updateAndRender();
   });
 
-  $('toolInstruction').onclick = ()=>{ currentMode='instruction'; $('toolInstruction').classList.add('active'); $('toolMarker').classList.remove('active'); };
-  $('toolMarker').onclick = ()=>{ currentMode='marker'; $('toolMarker').classList.add('active'); $('toolInstruction').classList.remove('active'); };
+  $('toolInstruction').onclick = ()=>{
+    currentMode='instruction';
+    $('toolInstruction').classList.add('active');
+    $('toolMarker').classList.remove('active');
+  };
+
+  $('toolMarker').onclick = ()=>{
+    currentMode='marker2';
+    $('toolMarker').classList.add('active');
+    $('toolInstruction').classList.remove('active');
+  };
 
   $('tab0').onclick=()=>{activeIdx=0; $('tab0').classList.add('active'); $('tab1').classList.remove('active'); refreshEditor();};
   $('tab1').onclick=()=>{activeIdx=1; $('tab1').classList.add('active'); $('tab0').classList.remove('active'); refreshEditor();};
 
-  $('addManualBtn').onclick=()=>{ points.push({id:null,description:'',isManual:true,isSilent:false,imgIdx:-1}); updateAndRender(); };
+  $('addManualBtn').onclick=()=>{
+    steps.push({ id:null, description:'', isManual:true, imgIdx:-1, px:null, py:null });
+    updateAndRender();
+  };
+
   $('addWarningBtn').onclick=()=>{ warnings.push({text:''}); renderWarnings(); };
 
   const getPayload = () => ({
@@ -226,8 +269,10 @@
     subTitle: $('sopSubtitleInput').value,
     image1: imagesBase64[0],
     image2: imagesBase64[1],
-    video1: videoBase64,
-    steps: points,
+    videoUrl,
+    markers1: steps.filter((s) => !s.isManual && s.px != null && s.py != null),
+    markers2,
+    steps,
     warnings,
     updated_at: new Date().toISOString()
   });
@@ -236,41 +281,90 @@
     currentSopId = s.id || null;
     $('sopTitleInput').value = s.mainTitle || '';
     $('sopSubtitleInput').value = s.subTitle || '';
-    points = s.steps || [];
-    warnings = s.warnings || [];
+
+    const incomingSteps = Array.isArray(s.steps) ? s.steps : [];
+    if (incomingSteps.length) {
+      steps = incomingSteps;
+    } else if (Array.isArray(s.markers1)) {
+      steps = s.markers1.map((m) => ({
+        id: m.id || null,
+        px: m.px,
+        py: m.py,
+        description: m.description || '',
+        isManual: false,
+        imgIdx: m.imgIdx ?? 0
+      }));
+    } else {
+      steps = [];
+    }
+
+    markers2 = Array.isArray(s.markers2) ? s.markers2 : [];
+    warnings = Array.isArray(s.warnings) ? s.warnings : [];
     imagesBase64 = [s.image1 || null, s.image2 || null];
-    videoBase64 = s.video1 || null;
-    $('videoInfo').textContent = videoBase64 ? 'Video yüklü' : '';
+    videoUrl = s.videoUrl || s.video1 || null;
+
+    $('videoInfo').textContent = videoUrl ? 'Video yüklü' : '';
+
     [0,1].forEach(i=>{
       images[i]=null;
-      if(imagesBase64[i]){ const im=new Image(); im.onload=()=>{images[i]=im; if(i===activeIdx) refreshEditor();}; im.src=imagesBase64[i]; }
+      if(imagesBase64[i]){
+        const im=new Image();
+        im.onload=()=>{images[i]=im; if(i===activeIdx) refreshEditor();};
+        im.src=imagesBase64[i];
+      }
     });
+
     updateAndRender();
   };
 
   $('saveSopBtn').onclick = async ()=>{
     $('statusText').textContent='Kaydediliyor...';
-    if (!initSupabase()) { localStorage.setItem('last_sop', JSON.stringify(getPayload())); $('statusText').textContent='Lokal kaydedildi'; return; }
+    if (!initSupabase()) {
+      localStorage.setItem('last_sop', JSON.stringify(getPayload()));
+      $('statusText').textContent='Lokal kaydedildi';
+      return;
+    }
+
     const payload = getPayload();
     let res;
-    if (currentSopId) res = await supabaseClient.from('sops').update(payload).eq('id', currentSopId).select().single();
-    else res = await supabaseClient.from('sops').insert(payload).select().single();
-    if (res.error) { $('statusText').textContent = `Hata: ${res.error.message}`; return; }
+
+    if (currentSopId) {
+      res = await supabaseClient.from('sops').update(payload).eq('id', currentSopId).select().single();
+    } else {
+      res = await supabaseClient.from('sops').insert(payload).select().single();
+    }
+
+    if (res.error) {
+      $('statusText').textContent = `Hata: ${res.error.message}`;
+      return;
+    }
+
     currentSopId = res.data.id;
     $('statusText').textContent='Supabase kaydedildi';
   };
 
-  $('newSopBtn').onclick = ()=>{ currentSopId=null; applySop({}); };
+  $('newSopBtn').onclick = ()=>{
+    currentSopId = null;
+    applySop({});
+  };
 
   const openViewer = (sop) => {
     viewerSop = sop;
-    viewerSteps = (sop.steps || []).filter(s=>!s.isSilent);
+    viewerSteps = Array.isArray(sop.steps) ? sop.steps : [];
     viewerStepIndex = 0;
+
     $('viewerScreen').classList.remove('hidden');
     $('viewerTitle').textContent = sop.mainTitle || 'SOP';
     $('viewerSubtitle').textContent = sop.subTitle || '';
-    if (sop.video1) { $('viewerVideo').src = sop.video1; $('viewerVideo').classList.remove('hidden'); }
-    else { $('viewerVideo').classList.add('hidden'); $('viewerVideo').removeAttribute('src'); }
+
+    if (sop.videoUrl) {
+      $('viewerVideo').src = sop.videoUrl;
+      $('viewerVideo').classList.remove('hidden');
+    } else {
+      $('viewerVideo').classList.add('hidden');
+      $('viewerVideo').removeAttribute('src');
+    }
+
     renderViewerStep();
   };
 
@@ -278,7 +372,9 @@
     const step = viewerSteps[viewerStepIndex] || {description:'Adım bulunamadı'};
     $('viewerStepText').textContent = `${viewerStepIndex+1}. ${step.description || '...'}`;
     $('viewerStepCounter').textContent = `${viewerStepIndex+1} / ${Math.max(1,viewerSteps.length)}`;
-    const img = step.imgIdx === 1 ? viewerSop.image2 : viewerSop.image1;
+
+    let img = viewerSop.image1;
+    if (step.imgIdx === 1) img = viewerSop.image2;
     $('viewerImage').src = img || '';
   };
 
@@ -288,10 +384,23 @@
 
   const renderLibrary = async () => {
     $('libraryList').innerHTML = '';
-    if (!initSupabase()) { $('libraryList').innerHTML = '<div class="text-sm text-slate-500">Supabase bağlantısı girin.</div>'; return; }
+
+    if (!initSupabase()) {
+      $('libraryList').innerHTML = '<div class="text-sm text-slate-500">Supabase bağlantısı girin.</div>';
+      return;
+    }
+
     const { data, error } = await supabaseClient.from('sops').select('*').order('updated_at', {ascending:false});
-    if (error) { $('libraryList').innerHTML = `<div class="text-sm text-red-600">${error.message}</div>`; return; }
-    if (!data.length) { $('libraryList').innerHTML = '<div class="text-sm text-slate-500">Kayıt yok.</div>'; return; }
+    if (error) {
+      $('libraryList').innerHTML = `<div class="text-sm text-red-600">${error.message}</div>`;
+      return;
+    }
+
+    if (!data.length) {
+      $('libraryList').innerHTML = '<div class="text-sm text-slate-500">Kayıt yok.</div>';
+      return;
+    }
+
     data.forEach(s => {
       const card = document.createElement('div');
       card.className = 'bg-white border rounded-xl p-3 shadow-sm space-y-2';
